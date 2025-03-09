@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 The LineageOS Project
+ * SPDX-FileCopyrightText: 2024-2025 The LineageOS Project
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.lineageos.glimpse.ext.updateMargin
 import org.lineageos.glimpse.models.MediaType
-import org.lineageos.glimpse.utils.MimeUtils
 import org.lineageos.glimpse.viewmodels.IntentsViewModel
 
 class PickerActivity : AppCompatActivity(R.layout.activity_picker) {
@@ -95,12 +94,8 @@ class PickerActivity : AppCompatActivity(R.layout.activity_picker) {
             it?.handle { parsedIntent ->
                 when (parsedIntent) {
                     is IntentsViewModel.ParsedIntent.PickIntent -> {
-                        val mediaType = parsedIntent.mimeType?.let { mimeType ->
-                            MimeUtils.mimeTypeToMediaType(mimeType)
-                        }
-
                         toolbar.setTitle(
-                            when (mediaType) {
+                            when (parsedIntent.mediaType) {
                                 MediaType.IMAGE -> R.string.pick_a_photo
                                 MediaType.VIDEO -> R.string.pick_a_video
                                 else -> R.string.pick_a_media

@@ -24,6 +24,7 @@ import org.lineageos.glimpse.models.Thumbnail
 import org.lineageos.glimpse.query.Query
 import org.lineageos.glimpse.query.and
 import org.lineageos.glimpse.query.eq
+import org.lineageos.glimpse.query.`in`
 import org.lineageos.glimpse.query.or
 import org.lineageos.glimpse.query.query
 import org.lineageos.glimpse.utils.MimeUtils
@@ -49,7 +50,7 @@ class LocalDataSource(
         .build()
 
     private val mapAlbum = { columnIndexCache: ColumnIndexCache ->
-        val id = columnIndexCache.getLong(MediaStore.Files.FileColumns._ID)
+        val id = columnIndexCache.getLong(ID_SQL_MAX)
         val bucketId = columnIndexCache.getLong(MediaStore.Files.FileColumns.BUCKET_ID)
         val bucketDisplayName = columnIndexCache.getStringOrNull(
             MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME
@@ -210,6 +211,7 @@ class LocalDataSource(
             ).toTypedArray(),
             ContentResolver.QUERY_ARG_GROUP_COLUMNS to arrayOf(
                 MediaStore.Files.FileColumns.BUCKET_ID,
+                MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME,
             ),
             ContentResolver.QUERY_ARG_SORT_COLUMNS to arrayOf(
                 "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC",
@@ -264,14 +266,35 @@ class LocalDataSource(
         } ?: RequestStatus.Error(MediaError.NOT_FOUND)
     }
 
+    override fun medias(mediaUris: List<Uri>) = contentResolver.queryFlow(
+        filesUri,
+        mediaProjection,
+        bundleOf(
+            ContentResolver.QUERY_ARG_SQL_SELECTION to query {
+                (MediaStore.Files.FileColumns._ID `in` List(mediaUris.size) {
+                    Query.ARG
+                }) and isImageOrVideo
+            },
+            ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS to mediaUris.map {
+                it.lastPathSegment!!
+            }.toTypedArray(),
+            ContentResolver.QUERY_ARG_SORT_COLUMNS to arrayOf(
+                "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC",
+            ),
+        ),
+    ).mapEachRow(mapMedia).mapLatest {
+        RequestStatus.Success<_, MediaError>(it)
+    }
+
     companion object {
         private const val ALBUMS_PATH = "albums"
 
-        private const val ID_SQL_COUNT = "COUNT(${MediaStore.Files.FileColumns._ID})"
-        private const val MAX_DATE_MODIFIED = "MAX(${MediaStore.Files.FileColumns.DATE_MODIFIED})"
+        private const val ID_SQL_MAX = "max(${MediaStore.Files.FileColumns._ID})"
+        private const val ID_SQL_COUNT = "count(${MediaStore.Files.FileColumns._ID})"
+        private const val MAX_DATE_MODIFIED = "max(${MediaStore.Files.FileColumns.DATE_MODIFIED})"
 
         private val albumProjection = arrayOf(
-            MediaStore.Files.FileColumns._ID,
+            ID_SQL_MAX,
             MediaStore.Files.FileColumns.BUCKET_ID,
             MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME,
             ID_SQL_COUNT,

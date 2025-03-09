@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023-2024 The LineageOS Project
+ * SPDX-FileCopyrightText: 2023-2025 The LineageOS Project
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -321,7 +321,8 @@ class ViewActivity : AppCompatActivity(R.layout.activity_view) {
                     parsedIntent?.handle {
                         when (it) {
                             is ParsedIntent.ViewIntent,
-                            is ParsedIntent.ReviewIntent -> {
+                            is ParsedIntent.ReviewIntent,
+                            is ParsedIntent.SecureReviewIntent -> {
                                 viewModel.setParsedIntent(it)
                             }
 
@@ -424,6 +425,10 @@ class ViewActivity : AppCompatActivity(R.layout.activity_view) {
 
                     // Update delete button
                     val isTrashed = displayedMedia?.isTrashed ?: false
+                    deleteButton.text = when (isTrashed) {
+                        true -> getString(R.string.file_action_restore_from_trash)
+                        false -> getString(R.string.file_action_move_to_trash)
+                    }
                     deleteButton.setCompoundDrawablesWithIntrinsicBounds(
                         0,
                         when (isTrashed) {

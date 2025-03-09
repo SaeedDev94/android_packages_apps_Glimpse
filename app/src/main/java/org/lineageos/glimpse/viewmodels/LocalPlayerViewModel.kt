@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023-2024 The LineageOS Project
+ * SPDX-FileCopyrightText: 2023-2025 The LineageOS Project
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -113,6 +113,30 @@ class LocalPlayerViewModel(
             initialValue = RequestStatus.Loading(),
         )
 
+    /**
+     * Collect secure media via Uri to update its list after deletion/restore.
+     * Needed because we can't use the album to observe for changes.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val secureMedias = parsedIntent
+        .flatMapLatest {
+            when (it) {
+                is IntentsViewModel.ParsedIntent.SecureReviewIntent -> {
+                    mediaRepository.medias(it.medias.map { media ->
+                        media.uri
+                    })
+                }
+
+                else -> flowOf(RequestStatus.Loading())
+            }
+        }
+        .flowOn(Dispatchers.IO)
+        .stateIn(
+            viewModelScope,
+            started = SharingStarted.WhileSubscribed(),
+            initialValue = RequestStatus.Loading(),
+        )
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val medias = parsedIntent
         .flatMapLatest {
@@ -122,6 +146,8 @@ class LocalPlayerViewModel(
                 }
 
                 is IntentsViewModel.ParsedIntent.ReviewIntent -> album
+
+                is IntentsViewModel.ParsedIntent.SecureReviewIntent -> secureMedias
 
                 else -> flowOf(RequestStatus.Loading())
             }
@@ -140,7 +166,7 @@ class LocalPlayerViewModel(
     val secure = parsedIntent
         .mapLatest {
             when (it) {
-                is IntentsViewModel.ParsedIntent.ReviewIntent -> it.secure
+                is IntentsViewModel.ParsedIntent.SecureReviewIntent -> true
                 else -> false
             }
         }
@@ -158,7 +184,9 @@ class LocalPlayerViewModel(
     val readOnly = parsedIntent
         .mapLatest {
             when (it) {
-                is IntentsViewModel.ParsedIntent.ReviewIntent -> it.secure
+                is IntentsViewModel.ParsedIntent.ReviewIntent,
+                is IntentsViewModel.ParsedIntent.SecureReviewIntent -> false
+
                 else -> true
             }
         }

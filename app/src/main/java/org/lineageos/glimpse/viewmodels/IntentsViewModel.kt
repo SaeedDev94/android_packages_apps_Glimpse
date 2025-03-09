@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 The LineageOS Project
+ * SPDX-FileCopyrightText: 2024-2025 The LineageOS Project
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -35,6 +35,7 @@ import org.lineageos.glimpse.models.MediaType
 import org.lineageos.glimpse.models.RequestStatus
 import org.lineageos.glimpse.models.RequestStatus.Companion.map
 import org.lineageos.glimpse.utils.MimeUtils
+import java.util.Date
 
 /**
  * A view model used by activities to handle intents.
@@ -60,21 +61,30 @@ class IntentsViewModel(application: Application) : GlimpseViewModel(application)
          *
          * @param albumRequest The [AlbumViewModel.AlbumRequest] to show
          * @param initialMedia The [Media] from which we should start
-         * @param secure Whether we can show item with a locked status
          */
         class ReviewIntent(
             val albumRequest: AlbumViewModel.AlbumRequest? = null,
             val initialMedia: Media? = null,
-            val secure: Boolean = false,
+        ) : ParsedIntent()
+
+        /**
+         * Review content securely.
+         *
+         * @param medias The list of [Media] to show
+         */
+        class SecureReviewIntent(
+            val medias: List<Media>,
         ) : ParsedIntent()
 
         /**
          * Pick a content.
          *
+         * @param mediaType The file type to select, null to avoid filtering
          * @param mimeType The type to select, null to avoid filtering
          * @param multiple Whether multiple items can be selected
          */
         class PickIntent(
+            val mediaType: MediaType? = null,
             val mimeType: String? = null,
             val multiple: Boolean = false,
         ) : ParsedIntent()
@@ -111,7 +121,7 @@ class IntentsViewModel(application: Application) : GlimpseViewModel(application)
                 return@mapLatest null
             }
 
-            val mediaItems = mutableListOf<MediaItem<*>>().apply {
+            val mediaItems = buildList {
                 intent.data?.let { data ->
                     uriToContent(
                         data,
@@ -123,13 +133,10 @@ class IntentsViewModel(application: Application) : GlimpseViewModel(application)
 
                 intent.clipData?.let { clipData ->
                     // Do a best effort to get a valid media type from the clip data
-                    var mediaType: MediaType? = null
-                    for (i in 0 until clipData.description.mimeTypeCount) {
-                        val mimeType = clipData.description.getMimeType(i)
-                        MimeUtils.mimeTypeToMediaType(mimeType)?.let { type ->
-                            mediaType = type
+                    val mediaType =
+                        (0 until clipData.description.mimeTypeCount).firstNotNullOfOrNull {
+                            MimeUtils.mimeTypeToMediaType(clipData.description.getMimeType(it))
                         }
-                    }
 
                     clipData.asArray().forEach { item ->
                         uriToContent(item.uri, mediaType)?.let {
@@ -161,7 +168,6 @@ class IntentsViewModel(application: Application) : GlimpseViewModel(application)
                 Intent.ACTION_VIEW -> ParsedIntent.ViewIntent(mediaItems.filterIsInstance<Media>())
 
                 MediaStore.ACTION_REVIEW,
-                MediaStore.ACTION_REVIEW_SECURE,
                 "com.android.camera.action.REVIEW" -> ParsedIntent.ReviewIntent(
                     AlbumViewModel.AlbumRequest(
                         intent.extras?.getSerializable(
@@ -185,12 +191,16 @@ class IntentsViewModel(application: Application) : GlimpseViewModel(application)
                         intent.extras?.getString(ViewActivity.EXTRA_MIME_TYPE),
                     ),
                     mediaItems.filterIsInstance<Media>().firstOrNull(),
-                    intent.action == MediaStore.ACTION_REVIEW_SECURE,
+                )
+
+                MediaStore.ACTION_REVIEW_SECURE -> ParsedIntent.SecureReviewIntent(
+                    mediaItems.filterIsInstance<Media>(),
                 )
 
                 Intent.ACTION_GET_CONTENT,
                 Intent.ACTION_PICK -> ParsedIntent.PickIntent(
-                    mimeType,
+                    mimeType?.let { MimeUtils.mimeTypeToMediaType(it) },
+                    mimeType?.takeUnless { it.endsWith("/*") },
                     intent.extras?.getBoolean(
                         Intent.EXTRA_ALLOW_MULTIPLE, false
                     ) ?: false,
@@ -220,7 +230,7 @@ class IntentsViewModel(application: Application) : GlimpseViewModel(application)
         .flowOn(Dispatchers.IO)
         .stateIn(
             viewModelScope,
-            SharingStarted.WhileSubscribed(),
+            SharingStarted.Eagerly,
             false,
         )
 
@@ -229,11 +239,16 @@ class IntentsViewModel(application: Application) : GlimpseViewModel(application)
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     val allowMultipleSelection = parsedIntent
-        .mapLatest { it is ParsedIntent.PickIntent && it.multiple }
+        .mapLatest {
+            when (it) {
+                is ParsedIntent.PickIntent -> it.multiple
+                else -> true
+            }
+        }
         .flowOn(Dispatchers.IO)
         .stateIn(
             viewModelScope,
-            SharingStarted.WhileSubscribed(),
+            SharingStarted.Eagerly,
             true,
         )
 
@@ -263,8 +278,38 @@ class IntentsViewModel(application: Application) : GlimpseViewModel(application)
                 is RequestStatus.Success -> it.data
 
                 is RequestStatus.Error -> {
-                    Log.e(LOG_TAG, "Cannot get media of $uri, error: ${it.error}")
-                    null
+                    // Build a `Media` object with the available data
+                    Log.i(
+                        LOG_TAG,
+                        "Cannot get media object from media provider, trying manual fallback"
+                    )
+                    when (type) {
+                        MediaType.IMAGE,
+                        MediaType.VIDEO ->
+                            Media(
+                                uri,
+                                type,
+                                applicationContext.contentResolver.getType(uri) ?: run {
+                                    Log.e(LOG_TAG, "Cannot get media type of $uri")
+                                    return null
+                                },
+                                uri,
+                                albumName = null,
+                                displayName = null,
+                                isFavorite = false,
+                                isTrashed = false,
+                                dateAdded = Date(),
+                                dateModified = Date(),
+                                width = 0,
+                                height = 0,
+                                orientation = 0,
+                            )
+
+                        else -> {
+                            Log.e(LOG_TAG, "Cannot build media object for $uri")
+                            null
+                        }
+                    }
                 }
             }
         }
